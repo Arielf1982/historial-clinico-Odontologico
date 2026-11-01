@@ -185,6 +185,10 @@ tfoot td{border-top:1px solid var(--line);border-bottom:0;font-weight:600}
 .btn.fant:hover{background:var(--teal-wash)}
 .btn.peq{padding:4px 9px;font-size:12.5px}
 .btn:disabled{opacity:.45;cursor:not-allowed}
+.btn.peligro{background:var(--rojo);border-color:var(--rojo);color:#fff}
+.btn.peligro:hover{filter:brightness(.92)}
+.btn.peligro[data-seguro="1"]{animation:latido 1.1s ease-in-out infinite}
+@keyframes latido{50%{filter:brightness(1.18)}}
 
 /* formularios */
 label.c{display:block;font-size:12px;color:var(--ink-2)}
@@ -265,6 +269,41 @@ dl.datos dd{margin:1px 0 0;font-size:13.5px}
 .tostada{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:var(--ink);
   color:var(--ground);padding:9px 16px;border-radius:999px;font-size:13px;z-index:60;box-shadow:var(--sombra)}
 
+/* ---------- impresión / PDF ---------- */
+#impresion{display:none}
+@media print{
+  .app, #capa, .tostada{display:none!important}
+  #impresion{display:block}
+  @page{size:A4;margin:14mm 13mm}
+  html,body{background:#fff;color:#111;font-size:10.5pt}
+  .doc{max-width:none;color:#111}
+  .doc h1{font-size:14pt;margin:0}
+  .doc h2{font-size:9pt;text-transform:uppercase;letter-spacing:.09em;color:#0f7d73;
+    border-bottom:.6pt solid #bcd3d3;padding-bottom:2pt;margin:14pt 0 6pt}
+  .doc .membrete{display:flex;justify-content:space-between;align-items:flex-start;gap:12pt;
+    border-bottom:1.6pt solid #0f7d73;padding-bottom:6pt}
+  .doc .membrete .der{text-align:right;font-size:8.5pt;color:#444}
+  .doc dl.datos{grid-template-columns:repeat(3,1fr);gap:6pt 12pt}
+  .doc dl.datos.ancha{grid-template-columns:1fr}
+  .doc dt{font-size:7pt;color:#666;letter-spacing:.05em}
+  .doc dd{font-size:9.5pt;color:#111}
+  .doc table{font-size:8.5pt}
+  .doc th{background:#eef5f5!important;color:#245;border-bottom:.6pt solid #bcd3d3;padding:3pt 4pt}
+  .doc td{border-bottom:.4pt solid #dde7e7;padding:3pt 4pt;color:#111}
+  .doc .chip{border:.4pt solid #bbb;color:#333;background:none!important}
+  .doc .firma{display:flex;gap:28pt;margin-top:26pt;break-inside:avoid}
+  .doc .firma div{flex:1;border-top:.8pt solid #333;padding-top:4pt;font-size:8.5pt;text-align:center}
+  .doc .firma b{display:block;font-size:9.5pt}
+  .doc .pie{margin-top:12pt;font-size:7.5pt;color:#666;border-top:.4pt solid #ddd;padding-top:4pt}
+  .doc section{break-inside:avoid}
+  .arcadas{gap:4pt}
+  .corona{width:30px;height:30px}
+  .pieza{width:32px}
+  .pieza .fdi{font-size:7pt;color:#444}
+  .pieza .sello{font-size:7pt}
+  *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+}
+
 @media (max-width:860px){
   .app{grid-template-columns:1fr}
   .rail{position:static;height:auto;flex-direction:row;align-items:center;gap:14px;overflow-x:auto;
@@ -286,6 +325,7 @@ dl.datos dd{margin:1px 0 0;font-size:13.5px}
       <button data-vista="agenda">Agenda<span class="k">3</span></button>
       <button data-vista="arancel">Aranceles<span class="k">4</span></button>
       <button data-vista="excel">Excel<span class="k">5</span></button>
+      <button data-vista="ajustes">Ajustes<span class="k">6</span></button>
     </nav>
     <div class="railpie">
       <div class="estado" id="estado"><i></i><span>conectando…</span></div>
@@ -295,6 +335,7 @@ dl.datos dd{margin:1px 0 0;font-size:13.5px}
   <main class="main" id="main"></main>
 </div>
 <div id="capa"></div>
+<div id="impresion" aria-hidden="true"></div>
 
 <script>
 'use strict';
@@ -327,7 +368,7 @@ const TEMPORALES = [
   [['85','84','83','82','81'], ['71','72','73','74','75']]
 ];
 
-const ARANCEL = [
+const ARANCEL_PRED = [
   {cod:'D0120', nom:'Consulta y evaluación clínica',        cat:'Diagnóstico',    pre:80},
   {cod:'D0210', nom:'Radiografía periapical',               cat:'Diagnóstico',    pre:60},
   {cod:'D0274', nom:'Radiografía panorámica',               cat:'Diagnóstico',    pre:180},
@@ -355,6 +396,17 @@ const ARANCEL = [
   {cod:'D9972', nom:'Blanqueamiento dental',                cat:'Estética',       pre:900}
 ];
 
+/** Ajustes del consultorio. Todo esto se edita desde la pantalla Ajustes. */
+const CONFIG_PRED = {
+  clinica: 'Consultorio Odontológico',
+  direccion: '',
+  telefono: '',
+  moneda: 'Bs',
+  prefijo: 'EXP-',
+  recargoFactura: 15,
+  profesionales: [{nombre:'Dra. Laura Mendoza', matricula:'OD-4471', cargo:'Odontóloga general'}]
+};
+
 const ANTECEDENTES = {diabetes:'Diabetes', hipertension:'Hipertensión arterial', cardiopatia:'Cardiopatía',
   hepatitis:'Hepatitis', vih:'VIH / SIDA', asma:'Asma', epilepsia:'Epilepsia', tiroides:'Trastorno tiroideo',
   anemia:'Anemia', tuberculosis:'Tuberculosis', cancer:'Cáncer', renal:'Enfermedad renal',
@@ -374,7 +426,8 @@ const METODOS = {efectivo:'Efectivo', tarjeta:'Tarjeta', transferencia:'Transfer
 const $ = (s, r) => (r || document).querySelector(s);
 const esc = v => String(v ?? '').replace(/[&<>"']/g, c =>
   ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const bs = n => 'Bs ' + (Number(n) || 0).toLocaleString('es-BO', {minimumFractionDigits:2, maximumFractionDigits:2});
+const bs = n => (S.config.moneda ? S.config.moneda + ' ' : '')
+  + (Number(n) || 0).toLocaleString('es-BO', {minimumFractionDigits:2, maximumFractionDigits:2});
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 const hoy = () => new Date().toISOString().slice(0, 10);
 const ahora = () => new Date().toISOString().slice(0, 16);
@@ -414,12 +467,59 @@ function alertas(p) {
   return a;
 }
 function expedienteNuevo() {
+  const pre = S.config.prefijo || '';
   let max = 0;
   S.pacientes.forEach(p => {
-    const m = /^EXP-(\d+)$/.exec(p.expediente || '');
-    if (m) max = Math.max(max, +m[1]);
+    const exp = p.expediente || '';
+    if (pre && exp.indexOf(pre) !== 0) return;
+    const n = parseInt(exp.slice(pre.length), 10);
+    if (!isNaN(n)) max = Math.max(max, n);
   });
-  return 'EXP-' + String(max + 1).padStart(5, '0');
+  return pre + String(max + 1).padStart(5, '0');
+}
+
+/** Precio con factura: el recargo configurado sobre el precio base. */
+function conFactura(precio) {
+  const pct = Number(S.config.recargoFactura);
+  return (Number(precio) || 0) * (1 + (isNaN(pct) ? 0 : pct) / 100);
+}
+
+/** Etiqueta del recargo, para rótulos. */
+function rotuloFactura() {
+  const pct = Number(S.config.recargoFactura) || 0;
+  return 'con factura +' + pct + '%';
+}
+
+/** Acepta la forma antigua (sólo nombres) y la nueva (ficha completa). */
+function normalizaProfesionales(lista) {
+  return (lista || []).map(x => typeof x === 'string'
+    ? {nombre:x, matricula:'', cargo:''}
+    : {nombre:x.nombre || '', matricula:x.matricula || '', cargo:x.cargo || ''})
+    .filter(x => x.nombre);
+}
+
+/** Ficha completa de un profesional por su nombre. */
+function fichaProfesional(nombre) {
+  const n = (nombre || '').trim();
+  return (S.config.profesionales || []).find(x => x.nombre === n)
+    || {nombre:n, matricula:'', cargo:''};
+}
+
+/** Lista de profesionales para los desplegables, sin repetidos. */
+function profesionales() {
+  const vistos = new Set((S.config.profesionales || []).map(x => x.nombre).filter(Boolean));
+  S.pacientes.forEach(p => {
+    (p.consultas || []).forEach(c => { if (c.odontologo) vistos.add(c.odontologo); });
+    (p.tratamientos || []).forEach(t => { if (t.odontologo) vistos.add(t.odontologo); });
+    (p.citas || []).forEach(c => { if (c.odontologo) vistos.add(c.odontologo); });
+  });
+  return [...vistos].sort((a, b) => a.localeCompare(b, 'es'));
+}
+
+/** El profesional que se propone por omisión al crear un registro. */
+function profesionalPorDefecto() {
+  const p = (S.config.profesionales || [])[0];
+  return p ? p.nombre : '';
 }
 function pacientesOrdenados() {
   return [...S.pacientes.values()].sort((a, b) => nombre(a).localeCompare(nombre(b), 'es'));
@@ -437,6 +537,8 @@ function tostada(txt) {
    ============================================================= */
 const S = {
   pacientes: new Map(),
+  config: {...CONFIG_PRED},
+  arancel: ARANCEL_PRED.map(a => ({...a})),
   vista: 'panel',
   pid: null,
   pest: 'resumen',
@@ -453,6 +555,35 @@ const clonar = o => (typeof structuredClone === 'function'
   ? structuredClone(o) : JSON.parse(JSON.stringify(o)));
 const LLAVE = 'odontograma-clinico-v1';
 const colas = new Map();
+
+function leerConfigLocal() {
+  try {
+    const raw = localStorage.getItem(LLAVE + '-config');
+    if (!raw) return;
+    const g = JSON.parse(raw);
+    if (g && typeof g === 'object') {
+      S.config = {...CONFIG_PRED, ...(g.config || {})};
+      S.config.profesionales = normalizaProfesionales(S.config.profesionales);
+      if (Array.isArray(g.arancel) && g.arancel.length) S.arancel = g.arancel;
+    }
+  } catch (e) {}
+}
+
+/** Guarda ajustes y arancel. Son un solo documento: cambian poco y juntos. */
+function guardarConfig() {
+  render();
+  const cuerpo = {config: S.config, arancel: S.arancel};
+  if (!DB || !S.puedeEditar) {
+    try { localStorage.setItem(LLAVE + '-config', JSON.stringify(cuerpo)); } catch (e) {}
+    return Promise.resolve();
+  }
+  const previa = colas.get('__config') || Promise.resolve();
+  const sig = previa.catch(() => {})
+    .then(() => DB.doc('config/general').set(clonar(cuerpo)))
+    .catch(() => tostada('No se pudieron guardar los ajustes en la nube.'));
+  colas.set('__config', sig);
+  return sig;
+}
 
 function leerLocal() {
   try {
@@ -529,6 +660,7 @@ async function arrancar() {
   if (!DB) {
     S.modo = 'local';
     compruebaGuardado();
+    leerConfigLocal();
     const local = leerLocal();
     const datos = local && local.length ? local : ejemplos();
     datos.forEach(p => S.pacientes.set(p.id, p));
@@ -546,6 +678,15 @@ async function arrancar() {
   const reloj = setTimeout(() => {
     if (!S.listo) { tostada('La base en la nube tarda en responder; se sigue intentando.'); }
   }, 10000);
+
+  DB.doc('config/general').onSnapshot(snap => {
+    if (!snap.exists) return;
+    const g = clonar(snap.data() || {});
+    S.config = {...CONFIG_PRED, ...(g.config || {})};
+    S.config.profesionales = normalizaProfesionales(S.config.profesionales);
+    if (Array.isArray(g.arancel) && g.arancel.length) S.arancel = g.arancel;
+    if (S.listo) render();
+  }, () => {});
 
   DB.collection('pacientes').onSnapshot(snap => {
     clearTimeout(reloj);
@@ -727,6 +868,7 @@ function vFicha() {
     <button class="btn fant" data-ir="pacientes">← Pacientes</button>
     <div class="linea">
       <button class="btn" data-accion="nueva-consulta">Nueva consulta</button>
+      <button class="btn sec" data-accion="imprimir">Historia en PDF</button>
       <button class="btn sec" data-accion="editar-paciente">Editar datos</button>
     </div>
   </div>
@@ -1009,6 +1151,7 @@ function fTratamientos(p, tot) {
         <td class="mono">${esc(fdate(t.fecha))}</td>
         <td class="mono">${esc(t.diente || '—')}${t.cara ? `<div class="nota">${esc(t.cara)}</div>` : ''}</td>
         <td><b>${esc(t.descripcion)}</b>
+          ${t.factura ? '<span class="chip b" style="margin-left:6px">con factura</span>' : ''}
           ${t.procedimiento ? `<div class="nota">${esc(t.procedimiento)}</div>` : ''}
           ${t.detalle ? `<div class="nota">${esc(t.detalle)}</div>` : ''}</td>
         <td>${esc(t.odontologo || '—')}</td>
@@ -1037,7 +1180,7 @@ function fPagos(p, tot) {
         <td>${esc(g.concepto || '—')}</td>
         <td><span class="chip">${esc(METODOS[g.metodo] || g.metodo)}</span></td>
         <td class="num">${esc(bs(g.monto))}</td>
-        <td class="num"><button class="btn fant peq" data-borrar-pago="${esc(g.id)}">Quitar</button></td>
+        <td class="num"><button class="btn sec peq" data-editar-pago="${esc(g.id)}">Editar</button></td>
       </tr>`).join('')}</tbody>
       <tfoot>
         <tr><td colspan="3" class="num">Pagado</td><td class="num">${esc(bs(tot.pagado))}</td><td></td></tr>
@@ -1095,34 +1238,108 @@ function vAgenda() {
             ${Object.entries(ESTADOS_CITA).map(([k, l]) =>
               `<option value="${k}" ${c.estado === k ? 'selected' : ''}>${esc(l)}</option>`).join('')}
           </select></td>
-          <td class="num"><button class="btn sec peq" data-atender="${esc(c.p.id)}|${esc(c.id)}">Atender</button>
-            <button class="btn fant peq" data-borrar-cita="${esc(c.p.id)}|${esc(c.id)}">✕</button></td>
+          <td class="num" style="white-space:nowrap">
+            <button class="btn sec peq" data-atender="${esc(c.p.id)}|${esc(c.id)}">Atender</button>
+            <button class="btn sec peq" data-editar-cita="${esc(c.p.id)}|${esc(c.id)}">Editar</button></td>
         </tr>`).join('')}</tbody></table></div>` : ''}
       </section>`;
     }).join('')}
   </div>`;
 }
 
+function vAjustes() {
+  const c = S.config;
+  const profs = c.profesionales || [];
+  return `
+  <div class="cabeza">
+    <div>
+      <p class="eyebrow">Configuración</p>
+      <h1>Ajustes</h1>
+      <p class="sub">El nombre del consultorio y de los profesionales aparecen en las historias
+         impresas y se proponen al cargar consultas, tratamientos y citas.</p>
+    </div>
+  </div>
+
+  <div class="grid g2">
+    <section class="panel">
+      <h2 style="margin-bottom:12px">Datos del consultorio</h2>
+      <form id="fConfig">
+        ${T('clinica', 'Nombre del consultorio', c.clinica, 'Consultorio Odontológico')}
+        ${T('direccion', 'Dirección', c.direccion, 'Av. Busch 1420, La Paz')}
+        ${T('telefono', 'Teléfono', c.telefono, '(2) 244-5566')}
+        <div class="grid g3">
+          ${T('moneda', 'Símbolo de la moneda', c.moneda, 'Bs')}
+          ${T('prefijo', 'Prefijo de expediente', c.prefijo, 'EXP-')}
+          ${N('recargoFactura', 'Recargo por factura (%)', c.recargoFactura, '0.1')}
+        </div>
+        <p class="nota">Con el recargo actual, un procedimiento de ${esc(bs(1000))}
+           se cobra ${esc(bs(conFactura(1000)))} con factura.</p>
+        <p class="nota">El siguiente expediente sería <b class="mono">${esc(expedienteNuevo())}</b>.</p>
+        <div class="linea" style="margin-top:12px"><button class="btn">Guardar ajustes</button></div>
+      </form>
+    </section>
+
+    <section class="panel">
+      <div class="entre" style="margin-bottom:12px">
+        <h2>Profesionales</h2>
+        <button class="btn peq" data-accion="nuevo-profesional">Agregar</button>
+      </div>
+      <p class="nota" style="margin-bottom:10px">El primero de la lista es el que se propone
+         al crear un registro y el que firma la historia impresa. Nombre, matrícula y cargo
+         salen al pie del PDF.</p>
+      ${profs.length ? `<div class="tabla-env"><table>
+        <thead><tr><th>Nombre</th><th>Matrícula</th><th>Cargo</th><th></th></tr></thead>
+        <tbody>${profs.map((x, i) => `<tr>
+          <td>${i === 0 ? '<span class="chip v">firma por omisión</span><br>' : ''}<b>${esc(x.nombre)}</b></td>
+          <td class="mono">${esc(x.matricula || '—')}</td>
+          <td>${esc(x.cargo || '—')}</td>
+          <td class="num" style="white-space:nowrap">
+            ${i > 0 ? `<button class="btn fant peq" data-prof-subir="${i}" title="Poner primero">↑</button>` : ''}
+            <button class="btn sec peq" data-prof-editar="${i}">Editar</button></td>
+        </tr>`).join('')}
+      </tbody></table></div>`
+        : '<div class="vacio">Sin profesionales cargados.</div>'}
+    </section>
+  </div>
+
+  <section class="panel">
+    <h2 style="margin-bottom:10px">Datos guardados</h2>
+    <p class="nota">${S.modo === 'db'
+      ? 'Los expedientes se guardan en la nube y se comparten entre sus dispositivos.'
+      : 'Los expedientes se guardan en este dispositivo. Exporte a Excel con regularidad.'}</p>
+    <div class="linea" style="margin-top:12px">
+      <button class="btn sec peq" data-ir="excel">Ir a Excel</button>
+      <button class="btn sec peq" data-accion="restaurar-arancel">Restaurar arancel original</button>
+    </div>
+  </section>`;
+}
+
 function vArancel() {
-  const cats = [...new Set(ARANCEL.map(a => a.cat))];
+  const cats = [...new Set(S.arancel.map(a => a.cat))];
   return `
   <div class="cabeza">
     <div>
       <p class="eyebrow">Referencia</p>
       <h1>Aranceles</h1>
-      <p class="sub">Precios base que se sugieren al cargar un tratamiento. El costo siempre
-         puede ajustarse paciente por paciente.</p>
+      <p class="sub">Precios que se sugieren al cargar un tratamiento; el costo siempre puede
+         ajustarse paciente por paciente. La columna <b>con factura</b> aplica el recargo
+         del <b>${esc(String(Number(S.config.recargoFactura) || 0))}%</b>, que se cambia en Ajustes.</p>
     </div>
+    <button class="btn" data-accion="nuevo-procedimiento">Agregar procedimiento</button>
   </div>
   <section class="panel alzado">
     <div class="tabla-env"><table>
-      <thead><tr><th>Código</th><th>Procedimiento</th><th class="num">Precio base</th></tr></thead>
+      <thead><tr><th>Código</th><th>Procedimiento</th><th class="num">Sin factura</th>
+        <th class="num">Con factura</th><th></th></tr></thead>
       <tbody>${cats.map(c => `
-        <tr><td colspan="3" style="background:var(--teal-wash);color:var(--teal-ink);
+        <tr><td colspan="5" style="background:var(--teal-wash);color:var(--teal-ink);
           font-family:var(--mono);font-size:11px;letter-spacing:.07em;text-transform:uppercase">${esc(c)}</td></tr>
-        ${ARANCEL.filter(a => a.cat === c).map(a => `<tr>
-          <td class="mono">${esc(a.cod)}</td><td>${esc(a.nom)}</td>
-          <td class="num">${esc(bs(a.pre))}</td></tr>`).join('')}`).join('')}
+        ${S.arancel.filter(a => a.cat === c).map(a => `<tr>
+          <td class="mono">${esc(a.cod || '—')}</td><td>${esc(a.nom)}</td>
+          <td class="num">${esc(bs(a.pre))}</td>
+          <td class="num" style="color:var(--teal-ink)">${esc(bs(conFactura(a.pre)))}</td>
+          <td class="num"><button class="btn sec peq"
+            data-editar-proc="${esc(a.nom)}">Editar</button></td></tr>`).join('')}`).join('')}
       </tbody>
     </table></div>
   </section>`;
@@ -1141,7 +1358,7 @@ const CABECERAS = {
   Consultas: ['expediente','paciente','fecha','motivo','anamnesis','examen_clinico','diagnostico','plan',
     'procedimientos_realizados','prescripcion','indicaciones','proxima_cita','odontologo'],
   Tratamientos: ['expediente','paciente','fecha','diente','cara','descripcion','procedimiento','detalle',
-    'costo','estado','odontologo'],
+    'costo','factura','estado','odontologo'],
   Pagos: ['expediente','paciente','fecha','monto','metodo','concepto'],
   Odontograma: ['expediente','paciente','diente','zona','hallazgo'],
   Citas: ['expediente','paciente','fecha_hora','duracion_min','motivo','estado','odontologo'],
@@ -1151,7 +1368,7 @@ const CABECERAS = {
 function hojas() {
   const ps = pacientesOrdenados();
   const H = {Pacientes:[], Historias:[], Consultas:[], Tratamientos:[], Pagos:[], Odontograma:[], Citas:[],
-    Aranceles: ARANCEL.map(a => ({codigo:a.cod, nombre:a.nom, categoria:a.cat, precio_base:a.pre}))};
+    Aranceles: S.arancel.map(a => ({codigo:a.cod, nombre:a.nom, categoria:a.cat, precio_base:a.pre}))};
 
   ps.forEach(p => {
     H.Pacientes.push({expediente:p.expediente || '', nombres:p.nombres || '', apellidos:p.apellidos || '',
@@ -1186,6 +1403,7 @@ function hojas() {
     (p.tratamientos || []).forEach(t => H.Tratamientos.push({expediente:p.expediente || '', paciente:nombre(p),
       fecha:t.fecha || '', diente:t.diente || '', cara:t.cara || '', descripcion:t.descripcion || '',
       procedimiento:t.procedimiento || '', detalle:t.detalle || '', costo:Number(t.costo) || 0,
+      factura: t.factura ? 1 : 0,
       estado:t.estado || 'planificado', odontologo:t.odontologo || ''}));
 
     (p.pagos || []).forEach(g => H.Pagos.push({expediente:p.expediente || '', paciente:nombre(p),
@@ -1310,6 +1528,7 @@ async function importar(file, modo) {
   const wb = XLSX.read(await file.arrayBuffer(), {type:'array', cellDates:true});
   const inf = {};
   const toca = new Set();
+  let tocaConfig = false;
   const porExp = new Map();
   S.pacientes.forEach(p => porExp.set((p.expediente || '').trim(), p));
 
@@ -1409,7 +1628,8 @@ async function importar(file, modo) {
     const est = clave(r.estado);
     p.tratamientos.push({id:uid(), fecha, diente:String(r.diente || ''), cara:r.cara || '',
       descripcion:desc, procedimiento:r.procedimiento || '', detalle:r.detalle || '',
-      costo:aNum(r.costo), estado:ESTADOS_TRAT[est] ? est : 'planificado',
+      costo:aNum(r.costo), factura: aBool(r.factura),
+      estado:ESTADOS_TRAT[est] ? est : 'planificado',
       odontologo:r.odontologo || '', consulta:''});
     toca.add(p.id);
     cuenta('Tratamientos', 'nuevos');
@@ -1445,6 +1665,26 @@ async function importar(file, modo) {
     cuenta('Odontograma', habia ? 'actualizados' : 'nuevos');
   });
 
+  // --- Aranceles
+  leer('Aranceles').forEach(r => {
+    const nom = String(r.nombre || '').trim();
+    if (!nom) { cuenta('Aranceles', 'omitidos'); return; }
+    const existente = S.arancel.find(x => x.nom === nom
+      || (r.codigo && x.cod && x.cod === String(r.codigo).trim()));
+    const datos = {cod:String(r.codigo || '').trim(), nom,
+                   cat:String(r.categoria || '').trim() || 'Sin categoría',
+                   pre:aNum(r.precio_base)};
+    if (existente) {
+      if (modo !== 'actualizar') { cuenta('Aranceles', 'omitidos'); return; }
+      Object.assign(existente, datos);
+      cuenta('Aranceles', 'actualizados');
+    } else {
+      S.arancel.push(datos);
+      cuenta('Aranceles', 'nuevos');
+    }
+    tocaConfig = true;
+  });
+
   // --- Citas
   leer('Citas').forEach(r => {
     const p = busca(r, 'Citas'); if (!p) return;
@@ -1460,6 +1700,11 @@ async function importar(file, modo) {
   });
 
   for (const id of toca) { await guardar(S.pacientes.get(id)); }
+  if (tocaConfig) {
+    S.arancel.sort((x, y) => (x.cat || '').localeCompare(y.cat || '', 'es')
+      || (x.nom || '').localeCompare(y.nom || '', 'es'));
+    await guardarConfig();
+  }
   S.informe = inf;
   render();
   tostada('Importación terminada: ' + toca.size + ' expediente(s) afectado(s).');
@@ -1538,20 +1783,270 @@ function vExcel() {
 }
 
 /* =============================================================
+   Historia clínica imprimible (PDF)
+   ============================================================= */
+
+/** Arma el documento completo de un paciente. */
+function documentoHistoria(p, opciones) {
+  const o = opciones || {};
+  const h = p.historia || {};
+  const t = totales(p);
+  const firmante = fichaProfesional(o.firmante || profesionalPorDefecto());
+  const c = S.config;
+
+  const dato = (k, v) => `<div><dt>${esc(k)}</dt><dd>${esc(v || '—')}</dd></div>`;
+  const parrafo = (k, v) => `<div><dt>${esc(k)}</dt><dd>${v ? esc(v).replace(/\n/g, '<br>') : '—'}</dd></div>`;
+  const marcados = obj => Object.keys(obj).filter(k => h[k]).map(k => obj[k]);
+
+  const consultas = [...(p.consultas || [])].sort((a, b) => (a.fecha || '').localeCompare(b.fecha || ''));
+  const trats = [...(p.tratamientos || [])].sort((a, b) => (a.fecha || '').localeCompare(b.fecha || ''));
+  const pagos = [...(p.pagos || [])].sort((a, b) => (a.fecha || '').localeCompare(b.fecha || ''));
+
+  const resumenOdo = {};
+  Object.keys(p.odontograma || {}).forEach(k => {
+    const [d, z] = k.split('|');
+    (resumenOdo[d] = resumenOdo[d] || []).push(
+      (HALLAZGOS[p.odontograma[k]] || {}).et + (z === 'completo' ? '' : ' (' + z + ')'));
+  });
+
+  return `<article class="doc">
+    <header class="membrete">
+      <div>
+        <h1>${esc(c.clinica || 'Consultorio Odontológico')}</h1>
+        <div style="font-size:8.5pt;color:#444">${esc([c.direccion, c.telefono].filter(Boolean).join(' · '))}</div>
+      </div>
+      <div class="der">
+        <b>HISTORIA CLÍNICA ODONTOLÓGICA</b><br>
+        Expediente ${esc(p.expediente || '—')}<br>
+        Emitida el ${esc(fdate(hoy()))}
+      </div>
+    </header>
+
+    <h2>1 · Filiación del paciente</h2>
+    <dl class="datos">
+      ${dato('Nombre completo', (p.nombres || '') + ' ' + (p.apellidos || ''))}
+      ${dato('Documento', p.documento)}
+      ${dato('Fecha de nacimiento', p.nacimiento ? fdate(p.nacimiento) + ' (' + edad(p.nacimiento) + ')' : '')}
+      ${dato('Sexo', {M:'Masculino', F:'Femenino', O:'Otro'}[p.sexo] || '')}
+      ${dato('Estado civil', p.estadoCivil)}
+      ${dato('Ocupación', p.ocupacion)}
+      ${dato('Teléfono', p.telefono)}
+      ${dato('Correo', p.email)}
+      ${dato('Dirección', [p.direccion, p.ciudad].filter(Boolean).join(', '))}
+      ${dato('Contacto de emergencia', [p.emergencia, p.telEmergencia].filter(Boolean).join(' · '))}
+      ${dato('Aseguradora', p.aseguradora)}
+    </dl>
+
+    ${o.historia === false || !h.actualizado ? '' : `
+    <h2>2 · Anamnesis</h2>
+    <dl class="datos ancha">
+      ${parrafo('Motivo de consulta', h.motivo)}
+      ${parrafo('Enfermedad actual', h.enfermedad)}
+    </dl>
+
+    <h2>3 · Antecedentes</h2>
+    <p style="font-size:9pt;margin-bottom:5pt"><b>Patológicos:</b>
+      ${marcados(ANTECEDENTES).length ? esc(marcados(ANTECEDENTES).join(' · ')) : 'No refiere'}
+      ${h.embarazo && h.semanas ? ' (gestación de ' + esc(h.semanas) + ' semanas)' : ''}</p>
+    <dl class="datos">
+      ${dato('Alergias', h.alergias || 'No refiere')}
+      ${dato('Medicación actual', h.medicacion || 'Ninguna')}
+      ${dato('Cirugías previas', h.cirugias)}
+    </dl>
+    ${h.antFamiliares ? `<dl class="datos ancha">${parrafo('Antecedentes familiares', h.antFamiliares)}</dl>` : ''}
+
+    <h2>4 · Hábitos, higiene y signos vitales</h2>
+    <p style="font-size:9pt"><b>Hábitos:</b>
+      ${marcados(HABITOS).length ? esc(marcados(HABITOS).join(' · ')) : 'Ninguno relevante'}
+      · Cepillado: ${esc(h.cepillado ? h.cepillado + ' por día' : '—')}
+      · Hilo dental: ${h.hilo ? 'sí' : 'no'}
+      · Higiene oral: ${esc(h.higiene || '—')}
+      · Última visita: ${esc(h.ultimaVisita || '—')}</p>
+    <p style="font-size:9pt"><b>Signos vitales:</b>
+      PA ${esc(h.pa || '—')} · Pulso ${esc(h.pulso || '—')} ·
+      T° ${esc(h.temp || '—')} · FR ${esc(h.fr || '—')}</p>
+
+    <h2>5 · Examen estomatológico</h2>
+    <dl class="datos" style="grid-template-columns:1fr 1fr">
+      ${parrafo('Extraoral', h.extraoral)}
+      ${parrafo('Intraoral', h.intraoral)}
+      ${parrafo('Encías y periodonto', h.encias)}
+      ${parrafo('Lengua', h.lengua)}
+      ${parrafo('Paladar y piso de boca', h.paladar)}
+      ${parrafo('ATM', h.atm)}
+    </dl>
+    <dl class="datos ancha">${dato('Oclusión', h.oclusion)}</dl>
+    ${h.obs ? `<dl class="datos ancha">${parrafo('Observaciones', h.obs)}</dl>` : ''}`}
+
+    ${o.odontograma === false ? '' : `
+    <h2>6 · Odontograma</h2>
+    <div class="arcadas">
+      ${PERMANENTES.map(fila => `<div class="arco">
+        ${fila.map(cuad => `<div class="cuad">${cuad.map(d => piezaHTML(p, d)).join('')}</div>`).join('')}
+      </div>`).join('')}
+    </div>
+    ${Object.keys(resumenOdo).length ? `<table style="margin-top:6pt">
+      <thead><tr><th style="width:60pt">Pieza</th><th>Hallazgos</th></tr></thead>
+      <tbody>${Object.keys(resumenOdo).sort().map(d =>
+        `<tr><td><b>${esc(d)}</b></td><td>${esc(resumenOdo[d].join(', '))}</td></tr>`).join('')}</tbody>
+    </table>` : '<p style="font-size:9pt">Sin hallazgos registrados.</p>'}`}
+
+    ${o.consultas === false ? '' : `
+    <h2>7 · Evolución</h2>
+    ${consultas.length ? consultas.map(x => `<section style="margin-bottom:8pt">
+      <p style="font-size:9pt;margin-bottom:2pt"><b>${esc(fdate(x.fecha, true))}</b>
+        — ${esc(x.motivo || 'Consulta')} ${x.odontologo ? '· ' + esc(x.odontologo) : ''}</p>
+      <dl class="datos" style="grid-template-columns:1fr 1fr">
+        ${parrafo('Examen clínico', x.examen)}
+        ${parrafo('Diagnóstico', x.diagnostico)}
+        ${parrafo('Plan de tratamiento', x.plan)}
+        ${parrafo('Procedimientos realizados', x.procedimientos)}
+        ${x.prescripcion ? parrafo('Prescripción', x.prescripcion) : ''}
+        ${x.indicaciones ? parrafo('Indicaciones', x.indicaciones) : ''}
+      </dl>
+    </section>`).join('') : '<p style="font-size:9pt">Sin consultas registradas.</p>'}`}
+
+    ${o.tratamientos === false ? '' : `
+    <h2>8 · Tratamientos</h2>
+    ${trats.length ? `<table>
+      <thead><tr><th>Fecha</th><th>Pieza</th><th>Procedimiento</th><th>Profesional</th>
+        <th>Estado</th><th>Factura</th><th style="text-align:right">Costo</th></tr></thead>
+      <tbody>${trats.map(x => `<tr>
+        <td>${esc(fdate(x.fecha))}</td><td>${esc(x.diente || '—')}</td>
+        <td>${esc(x.descripcion)}</td><td>${esc(x.odontologo || '—')}</td>
+        <td>${esc(ESTADOS_TRAT[x.estado] || x.estado)}</td>
+        <td>${x.factura ? 'Sí' : 'No'}</td>
+        <td style="text-align:right">${esc(bs(x.costo))}</td></tr>`).join('')}</tbody>
+      <tfoot>
+        <tr><td colspan="6" style="text-align:right"><b>Total</b></td>
+            <td style="text-align:right"><b>${esc(bs(t.total))}</b></td></tr>
+        <tr><td colspan="6" style="text-align:right">Pagado</td>
+            <td style="text-align:right">${esc(bs(t.pagado))}</td></tr>
+        <tr><td colspan="6" style="text-align:right">Saldo</td>
+            <td style="text-align:right">${esc(bs(t.saldo))}</td></tr>
+      </tfoot>
+    </table>` : '<p style="font-size:9pt">Sin tratamientos registrados.</p>'}`}
+
+    ${o.pagos === false || !pagos.length ? '' : `
+    <h2>9 · Pagos</h2>
+    <table>
+      <thead><tr><th>Fecha</th><th>Concepto</th><th>Método</th>
+        <th style="text-align:right">Monto</th></tr></thead>
+      <tbody>${pagos.map(g => `<tr><td>${esc(fdate(g.fecha))}</td>
+        <td>${esc(g.concepto || '—')}</td><td>${esc(METODOS[g.metodo] || g.metodo)}</td>
+        <td style="text-align:right">${esc(bs(g.monto))}</td></tr>`).join('')}</tbody>
+    </table>`}
+
+    <div class="firma">
+      <div>
+        <b>${esc(firmante.nombre || '')}</b>
+        ${firmante.matricula ? 'Matrícula ' + esc(firmante.matricula) + '<br>' : ''}
+        ${esc(firmante.cargo || '')}
+      </div>
+      <div>
+        <b>${esc((p.nombres || '') + ' ' + (p.apellidos || ''))}</b>
+        Paciente o responsable
+      </div>
+    </div>
+
+    <p class="pie">Documento emitido por ${esc(c.clinica || 'el consultorio')} el
+      ${esc(fdate(hoy()))}. Información clínica confidencial: su uso y divulgación están
+      restringidos al ámbito asistencial.</p>
+  </article>`;
+}
+
+/** Pregunta qué incluir y quién firma, y manda a imprimir. */
+function formImprimir(p) {
+  const profs = profesionales();
+  const ultima = [...(p.consultas || [])].sort((a, b) => (b.fecha || '').localeCompare(a.fecha || ''))[0];
+  const sugerido = (ultima && ultima.odontologo) || profesionalPorDefecto();
+  const ops = {};
+  profs.forEach(n => ops[n] = n);
+  if (!profs.length) ops[''] = '— sin firmante —';
+
+  const seccion = (n, l) => `<label><input type="checkbox" name="${n}" checked> ${esc(l)}</label>`;
+
+  modal('Historia clínica en PDF · ' + nombre(p), `
+    <p class="nota" style="margin-bottom:14px">Se abrirá el diálogo de impresión.
+       Elija <b>«Guardar como PDF»</b> como destino.</p>
+    ${Sel('firmante', 'Firma la historia', sugerido, ops)}
+    <fieldset><legend>Secciones</legend>
+      <div class="casillas">
+        ${seccion('historia', 'Anamnesis, antecedentes y examen')}
+        ${seccion('odontograma', 'Odontograma')}
+        ${seccion('consultas', 'Evolución de las consultas')}
+        ${seccion('tratamientos', 'Tratamientos y saldo')}
+        ${seccion('pagos', 'Detalle de pagos')}
+      </div>
+    </fieldset>
+    <p class="nota">El pie lleva el nombre, la matrícula y el cargo del profesional,
+       tal como están cargados en Ajustes.</p>`,
+  d => {
+    imprimirHistoria(p, {
+      firmante: d.firmante,
+      historia: !!d.historia, odontograma: !!d.odontograma, consultas: !!d.consultas,
+      tratamientos: !!d.tratamientos, pagos: !!d.pagos
+    });
+  }, 'Abrir impresión');
+}
+
+/** Vuelca el documento y abre el diálogo de impresión del sistema. */
+function imprimirHistoria(p, opciones) {
+  const caja = $('#impresion');
+  caja.innerHTML = documentoHistoria(p, opciones);
+  cerrar();
+
+  // En la app Android el WebView no implementa window.print(): hay un puente.
+  if (window.AndroidBridge && typeof window.AndroidBridge.imprimir === 'function') {
+    try {
+      window.AndroidBridge.imprimir('Historia clínica — ' + nombre(p));
+      return;
+    } catch (e) { /* se intenta con el camino normal */ }
+  }
+  setTimeout(() => {
+    try { window.print(); }
+    catch (e) { tostada('Este visor no permite imprimir. Abra el archivo en un navegador.'); }
+  }, 120);
+}
+
+/* =============================================================
    Ventanas modales y formularios
    ============================================================= */
 function cerrar() { $('#capa').innerHTML = ''; }
 
-function modal(titulo, cuerpo, onGuardar, textoOk) {
+function modal(titulo, cuerpo, onGuardar, textoOk, onEliminar) {
   $('#capa').innerHTML = `<div class="modal" role="dialog" aria-modal="true">
     <div><form id="fmod" novalidate>
       <header><h2>${esc(titulo)}</h2>
         <button type="button" class="btn fant" data-cerrar aria-label="Cerrar">✕</button></header>
       <div class="cuerpo">${cuerpo}</div>
-      <footer><button type="button" class="btn sec" data-cerrar>Cancelar</button>
+      <footer>
+        ${onEliminar ? '<button type="button" class="btn peligro" id="bEliminar">Eliminar</button>' : ''}
+        <span class="crece"></span>
+        <button type="button" class="btn sec" data-cerrar>Cancelar</button>
         <button class="btn">${esc(textoOk || 'Guardar')}</button></footer>
     </form></div></div>`;
   const f = $('#fmod');
+
+  if (onEliminar) {
+    const b = $('#bEliminar');
+    b.addEventListener('click', () => {
+      // Dos toques en vez de un cuadro de diálogo: funciona en todos lados.
+      if (b.dataset.seguro !== '1') {
+        b.dataset.seguro = '1';
+        b.textContent = 'Confirmar eliminación';
+        setTimeout(() => {
+          if (b.isConnected && b.dataset.seguro === '1') {
+            b.dataset.seguro = '';
+            b.textContent = 'Eliminar';
+          }
+        }, 5000);
+        return;
+      }
+      onEliminar();
+      cerrar();
+    });
+  }
   f.addEventListener('submit', ev => {
     ev.preventDefault();
     const d = {};
@@ -1570,6 +2065,9 @@ const N = (n, l, v, paso) => `<label class="c"><span>${esc(l)}</span>
   <input type="number" step="${paso || '1'}" min="0" name="${n}" value="${esc(v ?? '')}"></label>`;
 const A = (n, l, v, ph) => `<label class="c"><span>${esc(l)}</span>
   <textarea name="${n}" ${ph ? 'placeholder="' + esc(ph) + '"' : ''}>${esc(v || '')}</textarea></label>`;
+const TL = (n, l, v, lista, ph) => `<label class="c"><span>${esc(l)}</span>
+  <input name="${n}" value="${esc(v || '')}" list="lista-${n}" ${ph ? 'placeholder="' + esc(ph) + '"' : ''}>
+  <datalist id="lista-${n}">${lista.map(o => `<option value="${esc(o)}">`).join('')}</datalist></label>`;
 const Sel = (n, l, v, ops) => `<label class="c"><span>${esc(l)}</span><select name="${n}">
   ${Object.entries(ops).map(([k, et]) => `<option value="${esc(k)}" ${v === k ? 'selected' : ''}>${esc(et)}</option>`).join('')}
 </select></label>`;
@@ -1611,7 +2109,14 @@ function formPaciente(p) {
       guardar(Object.assign(S.pacientes.get(p.id), d));
       tostada('Datos actualizados.');
     }
-  }, nuevo ? 'Registrar paciente' : 'Guardar cambios');
+  }, nuevo ? 'Registrar paciente' : 'Guardar cambios',
+  nuevo ? null : () => {
+    eliminar(S.pacientes.get(p.id));
+    S.pid = null;
+    S.vista = 'pacientes';
+    render();
+    tostada('Expediente eliminado con todo su historial.');
+  });
 }
 
 function formHistoria(p) {
@@ -1677,11 +2182,11 @@ function formHistoria(p) {
 
 function formConsulta(p, c) {
   const nuevo = !c;
-  c = c || {fecha:ahora(), odontologo:'Dra. Laura Mendoza'};
+  c = c || {fecha:ahora(), odontologo:profesionalPorDefecto()};
   modal(nuevo ? 'Nueva consulta' : 'Editar consulta', `
     <div class="grid g3">
       ${F('fecha', 'Fecha y hora', c.fecha, 'datetime-local')}
-      ${T('odontologo', 'Profesional', c.odontologo)}
+      ${TL('odontologo', 'Profesional', c.odontologo, profesionales())}
       ${T('motivo', 'Motivo de la visita', c.motivo, 'Control, dolor en 46…')}
     </div>
     <fieldset><legend>Evolución</legend>
@@ -1707,14 +2212,24 @@ function formConsulta(p, c) {
       tostada('Consulta actualizada.');
     }
     guardar(pa);
-  }, nuevo ? 'Registrar consulta' : 'Guardar cambios');
+  }, nuevo ? 'Registrar consulta' : 'Guardar cambios',
+  nuevo ? null : () => {
+    const pa = S.pacientes.get(p.id);
+    pa.consultas = (pa.consultas || []).filter(x => x.id !== c.id);
+    // Los tratamientos de esa consulta quedan, pero sueltos.
+    (pa.tratamientos || []).forEach(t => { if (t.consulta === c.id) t.consulta = ''; });
+    guardar(pa);
+    tostada('Consulta eliminada.');
+  });
 }
 
 function formTratamiento(p, t) {
   const nuevo = !t;
-  t = t || {fecha:hoy(), estado:'planificado', odontologo:'Dra. Laura Mendoza', costo:''};
+  t = t || {fecha:hoy(), estado:'planificado', odontologo:profesionalPorDefecto(),
+            costo:'', factura:false};
   const ops = {'':'— Libre —'};
-  ARANCEL.forEach(a => ops[a.nom] = a.cod + ' · ' + a.nom + ' — ' + bs(a.pre));
+  S.arancel.forEach(a => ops[a.nom] = (a.cod ? a.cod + ' · ' : '') + a.nom
+    + ' — ' + bs(a.pre) + ' / ' + bs(conFactura(a.pre)) + ' c/f');
   modal(nuevo ? 'Nuevo tratamiento' : 'Editar tratamiento', `
     <div class="grid g2">
       <label class="c"><span>Procedimiento del arancel</span>
@@ -1728,17 +2243,23 @@ function formTratamiento(p, t) {
     <div class="grid g4">
       ${T('diente', 'Pieza (FDI)', t.diente, '46')}
       ${T('cara', 'Cara o superficie', t.cara, 'oclusal')}
-      ${N('costo', 'Costo (Bs)', t.costo, '0.01')}
+      ${N('costo', 'Costo cobrado (' + esc(S.config.moneda) + ')', t.costo, '0.01')}
       ${Sel('estado', 'Estado', t.estado, ESTADOS_TRAT)}
     </div>
+    <label class="c" style="display:flex;gap:8px;align-items:center;margin-bottom:12px">
+      <input type="checkbox" name="factura" id="chkFactura" ${t.factura ? 'checked' : ''}>
+      <span style="margin:0">Emitir factura — recarga
+        ${esc(String(Number(S.config.recargoFactura) || 0))}% sobre el precio del arancel</span></label>
+    <p class="nota" id="notaFactura" style="margin:-6px 0 14px"></p>
     ${T('descripcion', 'Descripción', t.descripcion, 'Obturación con resina en 46 (oclusal)', true)}
-    ${T('odontologo', 'Profesional', t.odontologo)}
+    ${TL('odontologo', 'Profesional', t.odontologo, profesionales())}
     ${A('detalle', 'Detalle, técnica o materiales', t.detalle)}`,
   d => {
     if (!d.descripcion) { tostada('La descripción es obligatoria.'); return false; }
     const pa = S.pacientes.get(p.id);
     pa.tratamientos = pa.tratamientos || [];
     d.costo = aNum(d.costo);
+    d.factura = !!d.factura;
     if (nuevo) {
       const ultima = [...(pa.consultas || [])].sort((a, b) => (b.fecha || '').localeCompare(a.fecha || ''))[0];
       pa.tratamientos.push({id:uid(), consulta: ultima ? ultima.id : '', ...d});
@@ -1748,65 +2269,212 @@ function formTratamiento(p, t) {
       tostada('Tratamiento actualizado.');
     }
     guardar(pa);
-  }, nuevo ? 'Registrar tratamiento' : 'Guardar cambios');
+  }, nuevo ? 'Registrar tratamiento' : 'Guardar cambios',
+  nuevo ? null : () => {
+    const pa = S.pacientes.get(p.id);
+    pa.tratamientos = (pa.tratamientos || []).filter(x => x.id !== t.id);
+    (pa.pagos || []).forEach(g => { if (g.tratamiento === t.id) g.tratamiento = ''; });
+    guardar(pa);
+    tostada('Tratamiento eliminado.');
+  });
 
   const sel = $('#selArancel');
-  if (sel) sel.addEventListener('change', () => {
-    const a = ARANCEL.find(x => x.nom === sel.value);
-    if (!a) return;
+  const chk = $('#chkFactura');
+  const nota = $('#notaFactura');
+
+  /** Deja el costo según el arancel elegido y si lleva factura o no. */
+  function recalcular(forzar) {
+    if (!sel) return;
+    const a = S.arancel.find(x => x.nom === sel.value);
     const f = sel.form;
-    const diente = f.elements.diente.value.trim();
-    if (!f.elements.descripcion.value.trim()) {
-      f.elements.descripcion.value = a.nom + (diente ? ' en ' + diente : '');
-    }
     const c = f.elements.costo;
-    if (!c.value || aNum(c.value) === 0) c.value = a.pre;
+    if (a) {
+      const base = Number(a.pre) || 0;
+      const precio = chk && chk.checked ? conFactura(base) : base;
+      if (forzar || !c.value || aNum(c.value) === 0) {
+        c.value = precio.toFixed(2);
+      }
+      if (nota) {
+        nota.textContent = 'Arancel: ' + bs(base) + ' sin factura · '
+          + bs(conFactura(base)) + ' ' + rotuloFactura() + '.';
+      }
+    } else if (nota) {
+      nota.textContent = chk && chk.checked
+        ? 'Procedimiento libre: escriba el costo ya con la factura incluida.'
+        : '';
+    }
+  }
+
+  if (sel) sel.addEventListener('change', () => {
+    const a = S.arancel.find(x => x.nom === sel.value);
+    if (a) {
+      const f = sel.form;
+      const diente = f.elements.diente.value.trim();
+      if (!f.elements.descripcion.value.trim()) {
+        f.elements.descripcion.value = a.nom + (diente ? ' en ' + diente : '');
+      }
+    }
+    recalcular(false);
   });
+  if (chk) chk.addEventListener('change', () => recalcular(true));
+  recalcular(false);
 }
 
-function formPago(p) {
+function formPago(p, g) {
+  const nuevo = !g;
   const t = totales(p);
-  modal('Registrar pago · ' + nombre(p), `
+  g = g || {fecha:hoy(), monto: t.saldo > 0 ? t.saldo : '', metodo:'efectivo', concepto:''};
+  modal((nuevo ? 'Registrar pago · ' : 'Editar pago · ') + nombre(p), `
     <p class="nota" style="margin-bottom:14px">Saldo actual:
       <b style="color:${t.saldo > 0 ? 'var(--rojo)' : 'inherit'}">${esc(bs(t.saldo))}</b></p>
     <div class="grid g2">
-      ${F('fecha', 'Fecha', hoy())}
-      ${N('monto', 'Monto (Bs)', t.saldo > 0 ? t.saldo : '', '0.01')}
-      ${Sel('metodo', 'Método de pago', 'efectivo', METODOS)}
-      ${T('concepto', 'Concepto', '', 'Abono endodoncia 46')}
+      ${F('fecha', 'Fecha', g.fecha)}
+      ${N('monto', 'Monto (' + esc(S.config.moneda) + ')', g.monto, '0.01')}
+      ${Sel('metodo', 'Método de pago', g.metodo, METODOS)}
+      ${T('concepto', 'Concepto', g.concepto, 'Abono endodoncia 46')}
     </div>`,
   d => {
     const monto = aNum(d.monto);
     if (monto <= 0) { tostada('El monto debe ser mayor a cero.'); return false; }
     const pa = S.pacientes.get(p.id);
     pa.pagos = pa.pagos || [];
-    pa.pagos.push({id:uid(), fecha:d.fecha || hoy(), monto, metodo:d.metodo, concepto:d.concepto});
+    if (nuevo) {
+      pa.pagos.push({id:uid(), fecha:d.fecha || hoy(), monto, metodo:d.metodo, concepto:d.concepto});
+      tostada('Pago de ' + bs(monto) + ' registrado.');
+    } else {
+      Object.assign(pa.pagos.find(x => x.id === g.id),
+        {fecha:d.fecha || hoy(), monto, metodo:d.metodo, concepto:d.concepto});
+      tostada('Pago actualizado.');
+    }
     guardar(pa);
-    tostada('Pago de ' + bs(monto) + ' registrado.');
-  }, 'Registrar pago');
+  }, nuevo ? 'Registrar pago' : 'Guardar cambios',
+  nuevo ? null : () => {
+    const pa = S.pacientes.get(p.id);
+    pa.pagos = (pa.pagos || []).filter(x => x.id !== g.id);
+    guardar(pa);
+    tostada('Pago eliminado.');
+  });
 }
 
-function formCita(p) {
+function formCita(p, c) {
+  const nuevo = !c;
+  c = c || {fechaHora: hoy() + 'T09:00', duracion:30, motivo:'',
+            estado:'pendiente', odontologo:profesionalPorDefecto()};
   const ops = {};
   pacientesOrdenados().forEach(x => ops[x.id] = nombre(x) + ' · ' + (x.expediente || ''));
   if (!Object.keys(ops).length) { tostada('Primero registre un paciente.'); return; }
-  modal('Agendar cita', `
+
+  modal(nuevo ? 'Agendar cita' : 'Editar cita', `
     ${p ? '' : Sel('pid', 'Paciente', '', ops)}
     <div class="grid g3">
-      ${F('fechaHora', 'Fecha y hora', hoy() + 'T09:00', 'datetime-local')}
-      ${N('duracion', 'Duración (min)', 30, '5')}
-      ${T('odontologo', 'Profesional', 'Dra. Laura Mendoza')}
+      ${F('fechaHora', 'Fecha y hora', c.fechaHora, 'datetime-local')}
+      ${N('duracion', 'Duración (min)', c.duracion, '5')}
+      ${TL('odontologo', 'Profesional', c.odontologo, profesionales())}
     </div>
-    ${T('motivo', 'Motivo', '', 'Control, cementado de corona…')}`,
+    ${T('motivo', 'Motivo', c.motivo, 'Control, cementado de corona…')}
+    ${nuevo ? '' : Sel('estado', 'Estado', c.estado, ESTADOS_CITA)}`,
   d => {
     const pa = p ? S.pacientes.get(p.id) : S.pacientes.get(d.pid);
     if (!pa) { tostada('Seleccione un paciente.'); return false; }
     pa.citas = pa.citas || [];
-    pa.citas.push({id:uid(), fechaHora:d.fechaHora, duracion:Number(d.duracion) || 30,
-      motivo:d.motivo, estado:'pendiente', odontologo:d.odontologo});
+    if (nuevo) {
+      pa.citas.push({id:uid(), fechaHora:d.fechaHora, duracion:Number(d.duracion) || 30,
+        motivo:d.motivo, estado:'pendiente', odontologo:d.odontologo});
+      tostada('Cita agendada.');
+    } else {
+      Object.assign(pa.citas.find(x => x.id === c.id), {fechaHora:d.fechaHora,
+        duracion:Number(d.duracion) || 30, motivo:d.motivo,
+        estado:d.estado || c.estado, odontologo:d.odontologo});
+      tostada('Cita actualizada.');
+    }
     guardar(pa);
-    tostada('Cita agendada.');
-  }, 'Agendar');
+  }, nuevo ? 'Agendar' : 'Guardar cambios',
+  nuevo ? null : () => {
+    const pa = p ? S.pacientes.get(p.id) : null;
+    if (!pa) return;
+    pa.citas = (pa.citas || []).filter(x => x.id !== c.id);
+    guardar(pa);
+    tostada('Cita eliminada.');
+  });
+}
+
+/** Alta y edición de un profesional de la lista de Ajustes. */
+function formProfesional(indice) {
+  const nuevo = indice === null || indice === undefined;
+  const a = nuevo ? {nombre:'', matricula:'', cargo:''}
+                  : (S.config.profesionales || [])[indice] || {nombre:'', matricula:'', cargo:''};
+  const cargos = ['Odontóloga general', 'Odontólogo general', 'Cirujano dentista',
+                  'Endodoncista', 'Periodoncista', 'Ortodoncista', 'Odontopediatra',
+                  'Rehabilitador oral', 'Implantólogo', 'Auxiliar de odontología'];
+  modal(nuevo ? 'Agregar profesional' : 'Editar profesional', `
+    ${T('nombre', 'Nombre completo', a.nombre, 'Dra. Laura Mendoza', true)}
+    <div class="grid g2">
+      ${T('matricula', 'Matrícula profesional', a.matricula, 'OD-4471')}
+      ${TL('cargo', 'Cargo', a.cargo, cargos, 'Odontóloga general')}
+    </div>
+    <p class="nota">Estos tres datos se imprimen al pie de la historia clínica,
+       sobre la línea de la firma.</p>`,
+  d => {
+    const n = (d.nombre || '').trim();
+    if (!n) { tostada('Escriba un nombre.'); return false; }
+    const ficha = {nombre:n, matricula:(d.matricula || '').trim(), cargo:(d.cargo || '').trim()};
+    const lista = [...(S.config.profesionales || [])];
+    if (nuevo) { lista.push(ficha); } else { lista[indice] = ficha; }
+    S.config.profesionales = lista;
+    guardarConfig();
+    tostada(nuevo ? 'Profesional agregado.' : 'Profesional actualizado.');
+  }, nuevo ? 'Agregar' : 'Guardar',
+  nuevo ? null : () => {
+    S.config.profesionales = (S.config.profesionales || []).filter((_, i) => i !== indice);
+    guardarConfig();
+    tostada('Profesional quitado de la lista.');
+  });
+}
+
+/** Alta y edición de un procedimiento del arancel. */
+function formProcedimiento(nombreProc) {
+  const nuevo = !nombreProc;
+  const a = nuevo ? {cod:'', nom:'', cat:'', pre:''} : S.arancel.find(x => x.nom === nombreProc);
+  if (!a) { tostada('Ese procedimiento ya no está en el arancel.'); return; }
+  const cats = [...new Set(S.arancel.map(x => x.cat).filter(Boolean))].sort();
+
+  modal(nuevo ? 'Nuevo procedimiento' : 'Editar procedimiento', `
+    <div class="grid g2">
+      ${T('cod', 'Código', a.cod, 'D2391')}
+      ${TL('cat', 'Categoría', a.cat, cats, 'Operatoria')}
+    </div>
+    ${T('nom', 'Nombre del procedimiento', a.nom, 'Obturación con resina, 1 superficie', true)}
+    ${N('pre', 'Precio sin factura (' + esc(S.config.moneda) + ')', a.pre, '0.01')}
+    <p class="nota" id="notaPrecio"></p>`,
+  d => {
+    const nom = (d.nom || '').trim();
+    if (!nom) { tostada('El nombre es obligatorio.'); return false; }
+    const repetido = S.arancel.some(x => x.nom === nom && x.nom !== a.nom);
+    if (repetido) { tostada('Ya existe un procedimiento con ese nombre.'); return false; }
+    const datos = {cod:(d.cod || '').trim(), nom, cat:(d.cat || '').trim() || 'Sin categoría',
+                   pre:aNum(d.pre)};
+    if (nuevo) { S.arancel.push(datos); } else { Object.assign(a, datos); }
+    S.arancel.sort((x, y) => (x.cat || '').localeCompare(y.cat || '', 'es')
+      || (x.nom || '').localeCompare(y.nom || '', 'es'));
+    guardarConfig();
+    tostada(nuevo ? 'Procedimiento agregado al arancel.' : 'Arancel actualizado.');
+  }, nuevo ? 'Agregar' : 'Guardar cambios',
+  nuevo ? null : () => {
+    S.arancel = S.arancel.filter(x => x.nom !== a.nom);
+    guardarConfig();
+    tostada('Procedimiento quitado del arancel.');
+  });
+
+  const campo = $('#fmod').elements.pre;
+  const nota = $('#notaPrecio');
+  const pintar = () => {
+    const base = aNum(campo.value);
+    nota.textContent = base > 0
+      ? 'Con factura se cobraría ' + bs(conFactura(base)) + ' (' + rotuloFactura() + ').'
+      : '';
+  };
+  campo.addEventListener('input', pintar);
+  pintar();
 }
 </script>
 
@@ -1827,6 +2495,7 @@ function render() {
     : S.vista === 'ficha' ? vFicha()
     : S.vista === 'agenda' ? vAgenda()
     : S.vista === 'arancel' ? vArancel()
+    : S.vista === 'ajustes' ? vAjustes()
     : vExcel();
 }
 
@@ -1895,10 +2564,28 @@ document.addEventListener('click', ev => {
   if (ec && p) { formConsulta(p, (p.consultas || []).find(c => c.id === ec.dataset.editarConsulta)); return; }
   const et = el('[data-editar-trat]');
   if (et && p) { formTratamiento(p, (p.tratamientos || []).find(x => x.id === et.dataset.editarTrat)); return; }
-  const bp = el('[data-borrar-pago]');
-  if (bp && p) {
-    p.pagos = (p.pagos || []).filter(g => g.id !== bp.dataset.borrarPago);
-    guardar(p); tostada('Pago eliminado.'); return;
+  const ep = el('[data-editar-pago]');
+  if (ep && p) { formPago(p, (p.pagos || []).find(g => g.id === ep.dataset.editarPago)); return; }
+  const eproc = el('[data-editar-proc]');
+  if (eproc) { formProcedimiento(eproc.dataset.editarProc); return; }
+  const epf = el('[data-prof-editar]');
+  if (epf) { formProfesional(Number(epf.dataset.profEditar)); return; }
+  const spf = el('[data-prof-subir]');
+  if (spf) {
+    const i = Number(spf.dataset.profSubir);
+    const lista = [...(S.config.profesionales || [])];
+    lista.unshift(lista.splice(i, 1)[0]);
+    S.config.profesionales = lista;
+    guardarConfig();
+    tostada('Firma por omisión actualizada.');
+    return;
+  }
+  const ecit = el('[data-editar-cita]');
+  if (ecit) {
+    const [pid, cid] = ecit.dataset.editarCita.split('|');
+    const pa = S.pacientes.get(pid);
+    if (pa) formCita(pa, (pa.citas || []).find(x => x.id === cid));
+    return;
   }
   const at = el('[data-atender]');
   if (at) {
@@ -1930,8 +2617,16 @@ document.addEventListener('click', ev => {
     case 'nueva-consulta':     if (p) formConsulta(p, null); break;
     case 'nuevo-tratamiento':  if (p) formTratamiento(p, null); break;
     case 'nuevo-pago':         if (p) formPago(p); break;
-    case 'nueva-cita':         formCita(null); break;
-    case 'nueva-cita-paciente':if (p) formCita(p); break;
+    case 'nueva-cita':         formCita(null, null); break;
+    case 'nueva-cita-paciente':if (p) formCita(p, null); break;
+    case 'imprimir':           if (p) formImprimir(p); break;
+    case 'nuevo-profesional':  formProfesional(null); break;
+    case 'nuevo-procedimiento':formProcedimiento(null); break;
+    case 'restaurar-arancel':
+      S.arancel = ARANCEL_PRED.map(a => ({...a}));
+      guardarConfig();
+      tostada('Arancel restaurado a los valores originales.');
+      break;
     case 'exportar':           exportar(); break;
     case 'ejemplos':           cargarEjemplos(); break;
     case 'importar': {
@@ -1946,6 +2641,20 @@ document.addEventListener('click', ev => {
       break;
     }
   }
+});
+
+document.addEventListener('submit', ev => {
+  if (ev.target.id !== 'fConfig') return;
+  ev.preventDefault();
+  const d = {};
+  new FormData(ev.target).forEach((v, k) => d[k] = typeof v === 'string' ? v.trim() : v);
+  const pct = parseFloat(String(d.recargoFactura).replace(',', '.'));
+  S.config = {...S.config,
+    clinica: d.clinica, direccion: d.direccion, telefono: d.telefono,
+    moneda: d.moneda, prefijo: d.prefijo,
+    recargoFactura: isNaN(pct) ? 0 : pct};
+  guardarConfig();
+  tostada('Ajustes guardados.');
 });
 
 document.addEventListener('input', ev => {
@@ -1971,7 +2680,7 @@ document.addEventListener('keydown', ev => {
   if (ev.key === 'Escape' && $('#capa').innerHTML) { cerrar(); return; }
   const campo = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName);
   if (campo || ev.metaKey || ev.ctrlKey || ev.altKey) return;
-  const vistas = {1:'panel', 2:'pacientes', 3:'agenda', 4:'arancel', 5:'excel'};
+  const vistas = {1:'panel', 2:'pacientes', 3:'agenda', 4:'arancel', 5:'excel', 6:'ajustes'};
   if (vistas[ev.key]) { S.vista = vistas[ev.key]; render(); }
 });
 
